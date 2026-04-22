@@ -76,6 +76,7 @@ main(int argc, char **argv)
   vector<string> logfiles;
   vector<vector<unsigned>> assignments;
   string stats_server_sockfile;
+  vector<unsigned> pinned_cpus; // New: store list of CPUs to pin
   while (1) {
     static struct option long_options[] =
     {
@@ -104,10 +105,11 @@ main(int argc, char **argv)
       {"disable-snapshots"          , no_argument       , &disable_snapshots         , 1}   ,
       {"stats-server-sockfile"      , required_argument , 0                          , 'x'} ,
       {"no-reset-counters"          , no_argument       , &no_reset_counters         , 1}   ,
+      {"pinned-cpus"                , required_argument , 0                          , 'c'} , // New argument
       {0, 0, 0, 0}
     };
     int option_index = 0;
-    int c = getopt_long(argc, argv, "b:s:t:d:B:f:r:n:o:m:l:a:x:", long_options, &option_index);
+    int c = getopt_long(argc, argv, "b:s:t:d:B:f:r:n:o:m:l:a:x:c:", long_options, &option_index);
     if (c == -1)
       break;
 
@@ -183,6 +185,15 @@ main(int argc, char **argv)
 
     case 'x':
       stats_server_sockfile = optarg;
+      break;
+
+    case 'c': // New: parse pinned CPUs list
+      {
+        // Accept comma-separated list, e.g. "0,2,4"
+        vector<unsigned> cpus = ParseCSVString<unsigned, RangeAwareParser<unsigned>>(optarg);
+        pinned_cpus.insert(pinned_cpus.end(), cpus.begin(), cpus.end());
+        pin_cpus = 1; // Enable pinning if this is specified
+      }
       break;
 
     case '?':
@@ -332,6 +343,18 @@ main(int argc, char **argv)
     cerr << "settings:"                                     << endl;
     cerr << "  par-loading : " << enable_parallel_loading   << endl;
     cerr << "  pin-cpus    : " << pin_cpus                  << endl;
+    
+    cerr << "  pinned-cpus : ";
+    if (pinned_cpus.empty()) {
+      cerr << "none";
+    } else {
+      for (size_t i = 0; i < pinned_cpus.size(); i++) {
+        if (i > 0) cerr << ",";
+        cerr << pinned_cpus[i];
+      }
+    }
+    cerr << endl;
+    
     cerr << "  slow-exit   : " << slow_exit                 << endl;
     cerr << "  retry-txns  : " << retry_aborted_transaction << endl;
     cerr << "  backoff-txns: " << backoff_aborted_transaction << endl;

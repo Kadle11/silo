@@ -120,6 +120,9 @@ public:
   {
     txn_obj_buf.reserve(str_arena::MinStrReserveLength);
     txn_obj_buf.resize(db->sizeof_txn_object(txn_flags));
+
+    interval_txn_counts.reserve(1200);
+    interval_abort_counts.reserve(1200);
   }
 
   virtual ~bench_worker() {}
@@ -149,6 +152,12 @@ public:
   inline size_t get_ntxn_aborts() const { return ntxn_aborts; }
 
   inline uint64_t get_latency_numer_us() const { return latency_numer_us; }
+  void get_interval_stats(std::vector<uint64_t> &txn_counts,
+                          std::vector<uint64_t> &abort_counts) const
+                          {
+                              txn_counts = interval_txn_counts;
+                              abort_counts = interval_abort_counts;
+                          }
 
   inline double
   get_avg_latency_us() const
@@ -184,6 +193,12 @@ protected:
   std::map<std::string, abstract_ordered_index *> open_tables;
   spin_barrier *const barrier_a;
   spin_barrier *const barrier_b;
+  
+  // interval stats 
+  std::vector<uint64_t> interval_txn_counts;
+  std::vector<uint64_t> interval_abort_counts;
+  uint64_t interval_start_time;
+  uint64_t interval_current_time;
 
 private:
   size_t ntxn_commits;

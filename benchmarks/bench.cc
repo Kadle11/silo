@@ -120,6 +120,9 @@ bench_worker::run()
   txn_counts.resize(workload.size());
   barrier_a->count_down();
   barrier_b->wait_for();
+
+  interval_start_time = latency_numer_us;
+
   while (running && (run_mode != RUNMODE_OPS || ntxn_commits < ops_per_worker)) {
     double d = r.next_uniform();
     for (size_t i = 0; i < workload.size(); i++) {
@@ -128,10 +131,18 @@ bench_worker::run()
         timer t;
         const unsigned long old_seed = r.get_seed();
         const auto ret = workload[i].fn(this);
+
         if (likely(ret.first)) {
           ++ntxn_commits;
           latency_numer_us += t.lap();
           backoff_shifts >>= 1;
+
+          if (latency_numer_us - interval_start_time >= 1000000) {
+            interval_txn_counts.push_back(ntxn_commits);
+            interval_abort_counts.push_back(ntxn_aborts);
+            interval_start_time = latency_numer_us;
+          }
+
         } else {
           ++ntxn_aborts;
           if (retry_aborted_transaction && running) {
@@ -247,11 +258,22 @@ bench_runner::run()
   size_t n_commits = 0;
   size_t n_aborts = 0;
   uint64_t latency_numer_us = 0;
+  
+  std::vector<uint64_t> interval_txn_counts;
+  std::vector<uint64_t> interval_abort_counts;
+  
   for (size_t i = 0; i < nthreads; i++) {
     n_commits += workers[i]->get_ntxn_commits();
     n_aborts += workers[i]->get_ntxn_aborts();
     latency_numer_us += workers[i]->get_latency_numer_us();
+
+    std::vector<uint64_t> txn_counts;
+    std::vector<uint64_t> abort_counts;
+    workers[i]->get_interval_stats(txn_counts, abort_counts);
+    interval_txn_counts = elemwise_sum(interval_txn_counts, txn_counts);
+    interval_abort_counts = elemwise_sum(interval_abort_counts, abort_counts);
   }
+
   const auto persisted_info = db->get_ntxn_persisted();
 
   const unsigned long elapsed = t.lap(); // lap() must come after do_txn_finish(),
@@ -368,6 +390,15 @@ bench_runner::run()
        << avg_latency_ms << " "
        << avg_persist_latency_ms << " "
        << agg_abort_rate << endl;
+  cout.flush();
+
+  // Output interval stats for plotting script
+  cout << "--- interval stats ---" << endl;
+  for (size_t i = 0; i < interval_txn_counts.size(); i++) {
+    cout << interval_txn_counts[i] << " "
+         << interval_abort_counts[i] << endl;
+  }
+  cout << "---------------------------------------" << endl;
   cout.flush();
 
   if (!slow_exit)

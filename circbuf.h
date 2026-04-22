@@ -17,7 +17,10 @@ public:
   circbuf()
     : head_(0), tail_(0)
   {
-    memset(&buf_[0], 0, Capacity * sizeof(buf_[0]));
+    // memset(&buf_[0], 0, Capacity * sizeof(buf_[0]));
+
+    for (unsigned i = 0; i < Capacity; i++)
+        buf_[i] = nullptr;
   }
 
   inline bool
