@@ -4,8 +4,11 @@
 #include <vector>
 #include <utility>
 #include <string>
+#include <cerrno>
+#include <cstring>
 
 #include <stdlib.h>
+#include <numaif.h>
 #include <sched.h>
 #include <unistd.h>
 #include <sys/sysinfo.h>
@@ -175,7 +178,12 @@ bench_worker::run()
 void
 bench_runner::run()
 {
-  // load data
+  
+  unsigned long nodemask = 1UL << 1;  // NUMA node 1
+  if (set_mempolicy(MPOL_BIND, &nodemask, sizeof(nodemask) * 8) != 0) {
+      std::cerr << "Warning: set_mempolicy(MPOL_BIND) failed: " << strerror(errno) << std::endl;
+  }
+
   const vector<bench_loader *> loaders = make_loaders();
   {
     spin_barrier b(loaders.size());
@@ -238,6 +246,9 @@ bench_runner::run()
   const pair<uint64_t, uint64_t> mem_info_before = get_system_memory_info();
 
   const vector<bench_worker *> workers = make_workers();
+  if (set_mempolicy(MPOL_DEFAULT, NULL, 0) != 0)
+    std::cerr << "  Warning: set_mempolicy(MPOL_DEFAULT) failed: " << strerror(errno) << std::endl;
+  
   ALWAYS_ASSERT(!workers.empty());
   for (vector<bench_worker *>::const_iterator it = workers.begin();
        it != workers.end(); ++it)

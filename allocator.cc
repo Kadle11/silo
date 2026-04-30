@@ -13,6 +13,8 @@
 
 using namespace util;
 
+#define REMOTE_NUMA 1
+
 static event_counter evt_allocator_total_region_usage(
     "allocator_total_region_usage_bytes");
 
@@ -41,22 +43,8 @@ allocator::PointerToPgMetadata(const void *p)
 size_t
 allocator::GetHugepageSizeImpl()
 {
-  FILE *f = fopen("/proc/meminfo", "r");
-  assert(f);
-  char *linep = NULL;
-  size_t n = 0;
-  static const char *key = "Hugepagesize:";
-  static const int keylen = strlen(key);
-  size_t size = 0;
-  while (getline(&linep, &n, f) > 0) {
-    if (strstr(linep, key) != linep)
-      continue;
-    size = atol(linep + keylen) * 1024;
-    break;
-  }
-  fclose(f);
-  assert(size);
-  return size;
+  // Hugepages disabled: use 4KB pages only
+  return 4096;
 }
 
 size_t
@@ -253,7 +241,7 @@ allocator::AllocateUnmanagedWithLock(regionctx &pc, size_t nhugepgs)
     }
     INVARIANT(x == mypx);
     const int advice =
-      UseMAdvWillNeed() ? MADV_HUGEPAGE | MADV_WILLNEED : MADV_HUGEPAGE;
+      UseMAdvWillNeed() ? MADV_NOHUGEPAGE | MADV_WILLNEED : MADV_NOHUGEPAGE;
     if (madvise(x, hugepgsize, advice)) {
       perror("madvise");
       ALWAYS_ASSERT(false);
@@ -345,7 +333,7 @@ allocator::FaultRegion(size_t cpu)
   }
   ALWAYS_ASSERT(x == pc.region_begin);
   const int advice =
-    UseMAdvWillNeed() ? MADV_HUGEPAGE | MADV_WILLNEED : MADV_HUGEPAGE;
+    UseMAdvWillNeed() ? MADV_NOHUGEPAGE | MADV_WILLNEED : MADV_NOHUGEPAGE;
   if (madvise(x, sz, advice)) {
     perror("madvise");
     ALWAYS_ASSERT(false);
@@ -353,7 +341,7 @@ allocator::FaultRegion(size_t cpu)
   numa_hint_memory_placement(
       pc.region_begin,
       (uintptr_t)pc.region_end - (uintptr_t)pc.region_begin,
-      numa_node_of_cpu(cpu));
+      REMOTE_NUMA);
   const size_t nfaults =
     ((uintptr_t)pc.region_end - (uintptr_t)pc.region_begin) / hugepgsize;
   std::cerr << "cpu" << cpu << " starting faulting region ("

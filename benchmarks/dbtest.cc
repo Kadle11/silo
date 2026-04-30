@@ -82,7 +82,7 @@ main(int argc, char **argv)
     {
       {"verbose"                    , no_argument       , &verbose                   , 1}   ,
       {"parallel-loading"           , no_argument       , &enable_parallel_loading   , 1}   ,
-      {"pin-cpus"                   , no_argument       , &pin_cpus                  , 1}   ,
+      {"pin-cpus"                   , no_argument       , &pin_cpus                  , 0}   ,
       {"slow-exit"                  , no_argument       , &slow_exit                 , 1}   ,
       {"retry-aborted-transactions" , no_argument       , &retry_aborted_transaction , 1}   ,
       {"backoff-aborted-transactions" , no_argument     , &backoff_aborted_transaction , 1}   ,

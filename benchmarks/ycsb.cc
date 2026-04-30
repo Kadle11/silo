@@ -23,7 +23,7 @@ using namespace std;
 using namespace util;
 
 static size_t nkeys;
-static const size_t YCSBRecordSize = 100;
+static const size_t YCSBRecordSize = 1024;
 
 // [R, W, RMW, Scan]
 // we're missing remove for now
