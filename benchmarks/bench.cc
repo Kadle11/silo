@@ -6,6 +6,7 @@
 #include <string>
 #include <cerrno>
 #include <cstring>
+#include <ctime>
 
 #include <stdlib.h>
 #include <numaif.h>
@@ -124,9 +125,8 @@ bench_worker::run()
   barrier_a->count_down();
   barrier_b->wait_for();
 
-  interval_start_time = latency_numer_us;
-
-  while (running && (run_mode != RUNMODE_OPS || ntxn_commits < ops_per_worker)) {
+  while (running && (run_mode != RUNMODE_OPS ||
+                     ntxn_commits.load(std::memory_order_relaxed) < ops_per_worker)) {
     double d = r.next_uniform();
     for (size_t i = 0; i < workload.size(); i++) {
       if ((i + 1) == workload.size() || d < workload[i].frequency) {
@@ -136,18 +136,11 @@ bench_worker::run()
         const auto ret = workload[i].fn(this);
 
         if (likely(ret.first)) {
-          ++ntxn_commits;
+          ntxn_commits.fetch_add(1, std::memory_order_relaxed);
           latency_numer_us += t.lap();
           backoff_shifts >>= 1;
-
-          if (latency_numer_us - interval_start_time >= 1000000) {
-            interval_txn_counts.push_back(ntxn_commits);
-            interval_abort_counts.push_back(ntxn_aborts);
-            interval_start_time = latency_numer_us;
-          }
-
         } else {
-          ++ntxn_aborts;
+          ntxn_aborts.fetch_add(1, std::memory_order_relaxed);
           if (retry_aborted_transaction && running) {
             if (backoff_aborted_transaction) {
               if (backoff_shifts < 63)
@@ -257,8 +250,39 @@ bench_runner::run()
   barrier_a.wait_for(); // wait for all threads to start up
   timer t, t_nosync;
   barrier_b.count_down(); // bombs away!
+
+  std::vector<std::string> per_sec_ts;
+  std::vector<uint64_t> per_sec_commits;
+  std::vector<uint64_t> per_sec_aborts;
   if (run_mode == RUNMODE_TIME) {
-    sleep(runtime);
+    per_sec_ts.reserve(runtime);
+    per_sec_commits.reserve(runtime);
+    per_sec_aborts.reserve(runtime);
+    uint64_t prev_commits = 0, prev_aborts = 0;
+    for (uint64_t s = 0; s < runtime; s++) {
+      sleep(1);
+      struct timespec ts;
+      clock_gettime(CLOCK_REALTIME, &ts);
+      struct tm tm_buf;
+      localtime_r(&ts.tv_sec, &tm_buf);
+      char tsbuf[16];
+      strftime(tsbuf, sizeof(tsbuf), "%H:%M:%S", &tm_buf);
+      uint64_t cur_commits = 0, cur_aborts = 0;
+      for (size_t i = 0; i < nthreads; i++) {
+        cur_commits += workers[i]->get_ntxn_commits();
+        cur_aborts += workers[i]->get_ntxn_aborts();
+      }
+      const uint64_t bucket_commits = cur_commits - prev_commits;
+      const uint64_t bucket_aborts = cur_aborts - prev_aborts;
+      per_sec_ts.emplace_back(tsbuf);
+      per_sec_commits.push_back(bucket_commits);
+      per_sec_aborts.push_back(bucket_aborts);
+      prev_commits = cur_commits;
+      prev_aborts = cur_aborts;
+      cout << "[interval] " << tsbuf << " "
+           << bucket_commits << " " << bucket_aborts << endl;
+      cout.flush();
+    }
     running = false;
   }
   __sync_synchronize();
@@ -269,20 +293,11 @@ bench_runner::run()
   size_t n_commits = 0;
   size_t n_aborts = 0;
   uint64_t latency_numer_us = 0;
-  
-  std::vector<uint64_t> interval_txn_counts;
-  std::vector<uint64_t> interval_abort_counts;
-  
+
   for (size_t i = 0; i < nthreads; i++) {
     n_commits += workers[i]->get_ntxn_commits();
     n_aborts += workers[i]->get_ntxn_aborts();
     latency_numer_us += workers[i]->get_latency_numer_us();
-
-    std::vector<uint64_t> txn_counts;
-    std::vector<uint64_t> abort_counts;
-    workers[i]->get_interval_stats(txn_counts, abort_counts);
-    interval_txn_counts = elemwise_sum(interval_txn_counts, txn_counts);
-    interval_abort_counts = elemwise_sum(interval_abort_counts, abort_counts);
   }
 
   const auto persisted_info = db->get_ntxn_persisted();
@@ -403,11 +418,12 @@ bench_runner::run()
        << agg_abort_rate << endl;
   cout.flush();
 
-  // Output interval stats for plotting script
+  // Per-second throughput: HH:MM:SS commits aborts (deltas within each 1s wall-clock bucket)
   cout << "--- interval stats ---" << endl;
-  for (size_t i = 0; i < interval_txn_counts.size(); i++) {
-    cout << interval_txn_counts[i] << " "
-         << interval_abort_counts[i] << endl;
+  for (size_t i = 0; i < per_sec_commits.size(); i++) {
+    cout << per_sec_ts[i] << " "
+         << per_sec_commits[i] << " "
+         << per_sec_aborts[i] << endl;
   }
   cout << "---------------------------------------" << endl;
   cout.flush();
