@@ -5,6 +5,7 @@
 #include <utility>
 #include <string>
 #include <set>
+#include <algorithm>
 
 #include <getopt.h>
 #include <stdlib.h>
@@ -76,7 +77,6 @@ main(int argc, char **argv)
   vector<string> logfiles;
   vector<vector<unsigned>> assignments;
   string stats_server_sockfile;
-  vector<unsigned> pinned_cpus; // New: store list of CPUs to pin
   while (1) {
     static struct option long_options[] =
     {
@@ -248,7 +248,17 @@ main(int argc, char **argv)
     const size_t maxpercpu = util::iceil(
         numa_memory / nthreads, ::allocator::GetHugepageSize());
     numa_memory = maxpercpu * nthreads;
-    ::allocator::Initialize(nthreads, maxpercpu);
+    // The allocator indexes per-CPU regions by the raw cpu id passed to
+    // pin_current_thread(). When pinned_cpus contains ids >= nthreads,
+    // we must size g_ncpus to cover the largest pin id.
+    size_t alloc_ncpus = nthreads;
+    if (!pinned_cpus.empty()) {
+      const size_t max_pin = *std::max_element(
+          pinned_cpus.begin(), pinned_cpus.end());
+      if (max_pin + 1 > alloc_ncpus)
+        alloc_ncpus = max_pin + 1;
+    }
+    ::allocator::Initialize(alloc_ncpus, maxpercpu);
   }
 
   const set<string> can_persist({"ndb-proto2"});

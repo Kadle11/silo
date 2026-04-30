@@ -197,9 +197,8 @@ protected:
   {
     if (!pin_cpus)
       return;
-    const size_t a = worker_id % coreid::num_cpus_online();
-    const size_t b = a % nthreads;
-    rcu::s_instance.pin_current_thread(b);
+    const size_t pin_cpu = pick_worker_pin_cpu(worker_id);
+    rcu::s_instance.pin_current_thread(pin_cpu);
   }
 
   inline ALWAYS_INLINE string &
@@ -230,7 +229,8 @@ ycsb_load_keyrange(
 {
   if (pin_cpus) {
     ALWAYS_ASSERT(pinid < nthreads);
-    rcu::s_instance.pin_current_thread(pinid);
+    const size_t pin_cpu = pick_pin_cpu(pinid, pinid);
+    rcu::s_instance.pin_current_thread(pin_cpu);
     rcu::s_instance.fault_region();
   }
 
@@ -308,7 +308,8 @@ public:
   {
     INVARIANT(keyend > keystart);
     if (verbose)
-      cerr << "[INFO] YCSB par loader cpu " << pinid
+      cerr << "[INFO] YCSB par loader pinid=" << pinid
+           << " -> cpu=" << pick_pin_cpu(pinid, pinid)
            << " [" << keystart << ", " << keyend << ")" << endl;
   }
 
@@ -408,6 +409,7 @@ protected:
       coreid::allocate_contiguous_aligned_block(nthreads, alignment);
     ALWAYS_ASSERT(blockstart >= 0);
     ALWAYS_ASSERT((blockstart % alignment) == 0);
+    worker_id_base = static_cast<size_t>(blockstart);
     fast_random r(8544290);
     vector<bench_worker *> ret;
     for (size_t i = 0; i < nthreads; i++)
@@ -423,13 +425,22 @@ private:
   static vector<unsigned>
   get_numa_nodes_used(unsigned nthds)
   {
-    // assuming CPUs [0, nthds) are used, what are all the
-    // NUMA nodes touched by [0, nthds)
+    // Determine the NUMA nodes touched by the worker pin set.
+    // If pinned_cpus is supplied, use it (the workers will pin there).
+    // Otherwise fall back to assuming CPUs [0, nthds) are used.
     set<unsigned> ret;
-    for (unsigned i = 0; i < nthds; i++) {
-      const int node = numa_node_of_cpu(i);
-      ALWAYS_ASSERT(node >= 0);
-      ret.insert(node);
+    if (!pinned_cpus.empty()) {
+      for (unsigned cpu : pinned_cpus) {
+        const int node = numa_node_of_cpu(cpu);
+        ALWAYS_ASSERT(node >= 0);
+        ret.insert(node);
+      }
+    } else {
+      for (unsigned i = 0; i < nthds; i++) {
+        const int node = numa_node_of_cpu(i);
+        ALWAYS_ASSERT(node >= 0);
+        ret.insert(node);
+      }
     }
     return vector<unsigned>(ret.begin(), ret.end());
   }

@@ -38,10 +38,15 @@ extern uint64_t ops_per_worker;
 extern int run_mode;
 extern int enable_parallel_loading;
 extern int pin_cpus;
+extern std::vector<unsigned> pinned_cpus;
+extern size_t worker_id_base;
 extern int slow_exit;
 extern int retry_aborted_transaction;
 extern int no_reset_counters;
 extern int backoff_aborted_transaction;
+
+size_t pick_pin_cpu(size_t index, size_t fallback_cpu);
+size_t pick_worker_pin_cpu(size_t worker_id);
 
 class scoped_db_thread_ctx {
 public:

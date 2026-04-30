@@ -313,7 +313,7 @@ protected: \
   {
     const unsigned int partid = PartitionId(wid);
     ALWAYS_ASSERT(partid < nthreads);
-    const unsigned int pinid  = partid;
+    const unsigned int pinid = pick_pin_cpu(partid, partid);
     if (verbose)
       cerr << "PinToWarehouseId(): coreid=" << coreid::core_id()
            << " pinned to whse=" << wid << " (partid=" << partid << ")"
@@ -609,9 +609,8 @@ protected:
   {
     if (!pin_cpus)
       return;
-    const size_t a = worker_id % coreid::num_cpus_online();
-    const size_t b = a % nthreads;
-    rcu::s_instance.pin_current_thread(b);
+    const size_t pin_cpu = pick_worker_pin_cpu(worker_id);
+    rcu::s_instance.pin_current_thread(pin_cpu);
     rcu::s_instance.fault_region();
   }
 
@@ -2098,6 +2097,7 @@ protected:
       coreid::allocate_contiguous_aligned_block(nthreads, alignment);
     ALWAYS_ASSERT(blockstart >= 0);
     ALWAYS_ASSERT((blockstart % alignment) == 0);
+    worker_id_base = static_cast<size_t>(blockstart);
     fast_random r(23984543);
     vector<bench_worker *> ret;
     if (NumWarehouses() <= nthreads) {

@@ -43,10 +43,35 @@ uint64_t ops_per_worker = 0;
 int run_mode = RUNMODE_TIME;
 int enable_parallel_loading = false;
 int pin_cpus = 0;
+vector<unsigned> pinned_cpus;
+size_t worker_id_base = 0;
 int slow_exit = 0;
 int retry_aborted_transaction = 0;
 int no_reset_counters = 0;
 int backoff_aborted_transaction = 0;
+
+static inline size_t
+worker_index_from_id(size_t worker_id)
+{
+  return (worker_id >= worker_id_base) ? (worker_id - worker_id_base) : worker_id;
+}
+
+size_t
+pick_pin_cpu(size_t index, size_t fallback_cpu)
+{
+  if (!pinned_cpus.empty())
+    return pinned_cpus[index % pinned_cpus.size()];
+  return fallback_cpu;
+}
+
+size_t
+pick_worker_pin_cpu(size_t worker_id)
+{
+  const size_t idx = worker_index_from_id(worker_id);
+  const size_t a = worker_id % coreid::num_cpus_online();
+  const size_t b = a % nthreads;
+  return pick_pin_cpu(idx, b);
+}
 
 template <typename T>
 static void
